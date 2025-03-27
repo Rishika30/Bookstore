@@ -13,5 +13,6 @@
         "outDir": "dist"
     },
     "include": ["src/**/*"],
+    "exclude": ["node_modules"]
     //"files":["custom.d.ts"]
 }

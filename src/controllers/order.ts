@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import bookModel from "../models/book";
 import mongoose from "mongoose";
 import orderModel from "../models/order";
+import { AppError, handleError } from "../errorController/errorHandler";
 dotenv.config();
 
 export const placeOrder = async (req: Request, res: Response) => {
@@ -13,19 +14,13 @@ export const placeOrder = async (req: Request, res: Response) => {
 
         const user = await userModel.findById(id);
         if (!user) {
-            res.status(404).json({ message: "User not found" });
-            return;
+            throw new AppError('User not found', 404);
         }
 
         const cartBookIds = user.cart.map(item => item.toString());
         const invalidBooks = await order.filter(bookId => !cartBookIds.includes(bookId));
         if (invalidBooks.length > 0) {
-            res.status(400).json({
-                status: "error",
-                message: "Some books are not in your cart",
-                invalidBooks
-            });
-            return;
+            throw new AppError('Some books are not in your cart', 400, { invalidBooks });
         }
         const newOrder = await orderModel.create({ user: id, books: order });
 
@@ -41,7 +36,7 @@ export const placeOrder = async (req: Request, res: Response) => {
         });
         return;
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }
 
@@ -60,7 +55,7 @@ export const getOrderHistory = async (req: Request, res: Response) => {
         });
         return;
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }
 
@@ -71,6 +66,7 @@ export const getAllOrders = async (req: Request, res: Response) => {
         })
         .populate({
             path: "user",
+            select: "-password",
         }).sort({ createdAt: -1});
 
         res.status(200).json({
@@ -79,7 +75,7 @@ export const getAllOrders = async (req: Request, res: Response) => {
         });
         return;
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }
 
@@ -96,9 +92,9 @@ export const updateOrderStatus = async (req: Request, res: Response) => {
             });
             return;
         }else{
-            res.status(403).json({ message: "Not Authorized" });
+            throw new AppError('Not Authorized', 403);
         }
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }

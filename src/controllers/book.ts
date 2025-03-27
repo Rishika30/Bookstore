@@ -3,6 +3,8 @@ import userModel from "../models/user";
 import { iUser } from "../models/user";
 import dotenv from "dotenv";
 import bookModel from "../models/book";
+import { AppError, handleError } from "../errorController/errorHandler";
+import { redisClient } from "../app";
 dotenv.config();
 
 export const addBook = async(req: Request, res: Response) => {
@@ -15,10 +17,9 @@ export const addBook = async(req: Request, res: Response) => {
                 res.status(201).json({ message: "Added book successfully" });
                 return;
         }
-        res.status(403).json({ message: "Not Authorized" });
-        return;    
+        throw new AppError('Not Authorized', 403);  
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }
 
@@ -31,8 +32,7 @@ export const updateBook = async(req: Request, res: Response) => {
             const updates = req.body;
             const updatedBook = await bookModel.findByIdAndUpdate(bookId, updates, {new: true, runValidators: true});
             if(!updatedBook){
-                res.status(404).json({ message: "Book not found" });
-                return;
+                throw new AppError('Book not found', 404);
             }
             res.status(200).json({
                 message: "Updated book successfully",
@@ -40,10 +40,10 @@ export const updateBook = async(req: Request, res: Response) => {
             });
             return;
         }else{
-            res.status(403).json({ message: "Not Authorized" });
+            throw new AppError('Not Authorized', 403);
         }
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }
 
@@ -58,33 +58,76 @@ export const deleteBook = async (req: Request, res: Response) => {
             return;
         }
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }
 
 export const getAllBooks = async (req: Request, res: Response) => {
     try {
-        const books = await bookModel.find().sort({ createdAt: -1 });
-        res.json({
-            status: "Success",
-            data: books,
-        })
+
+        const validatedQuery = {
+            cursor: req.query.cursor as string | undefined,
+            limit: parseInt(req.query.limit as string, 10) | 10,
+        };
+
+        const cacheKey = `books:cursor:${validatedQuery.cursor || "null"}:limit:${validatedQuery.limit}`;
+
+        const cachedBooks = await redisClient.get(cacheKey);
+        if (cachedBooks) {
+            res.json(JSON.parse(cachedBooks));
+            return;
+        }
+
+        const query = validatedQuery.cursor ? { _id: { $gt: validatedQuery.cursor } } : {};
+        const books = await bookModel.find(query)
+        .limit(validatedQuery.limit + 1)
+        .sort({ _id: 1 });
+
+        const hasNextPage = books.length > validatedQuery.limit;
+        if (hasNextPage) books.pop();
+
+        const response = {
+            books,
+            pageInfo: {
+                hasNextPage,
+                endCursor: hasNextPage ? books[books.length - 1]._id : null,
+            },
+        };
+
+        await redisClient.set(cacheKey, JSON.stringify(response), {
+            EX: 86400,
+        });
+
+        res.json(response);
         return;
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }
 
 export const getRecentBooks = async (req: Request, res: Response) =>{
     try {
-        const books = await bookModel.find().sort({ createdAt: -1 }).limit(4);
-        res.json({
+
+        const cacheKey = "books:recent";
+        const cachedBooks = await redisClient.get(cacheKey);
+        if (cachedBooks) {
+            res.json(JSON.parse(cachedBooks));
+            return;
+        }
+        const books = await bookModel.find().sort({ createdAt: -1 }).limit(10);
+        const response = {
             status: "Success",
             data: books,
-        })
+        };
+
+        await redisClient.set(cacheKey, JSON.stringify(response), {
+            EX: 3600,
+        });
+
+        res.json(response);
         return;
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }
 
@@ -98,6 +141,6 @@ export const getBookById = async (req: Request, res: Response) => {
         });
         return;
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        handleError(error, res);
     }
 }

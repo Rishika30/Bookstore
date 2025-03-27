@@ -45,3 +45,8 @@ export const addBookSchema = Joi.object({
   description: Joi.string().required(),
   language: Joi.string().required()
 });
+
+export const getBooksSchema = Joi.object({
+  cursor: Joi.string().optional(),
+  limit: Joi.number().integer().min(1).default(10),
+});
